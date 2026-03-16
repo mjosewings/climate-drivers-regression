@@ -1,28 +1,16 @@
-"""
-data_collection.py – Collect environmental data from three required scientific sources.
+# Pull data from NOAA GML, NASA GISS, and OWID; merge to monthly and write data/raw/raw_merged.csv
 
-Sources:
-  (a) NOAA Global Monitoring Laboratory – CO₂, CH₄, N₂O (ppm / ppb)
-  (b) NASA GISS – global temperature anomaly; NCEI – total solar irradiance
-  (c) Our World in Data – CO₂ emissions, land-use, anthropogenic factors
-
-All data are aligned to monthly resolution and merged into a single DataFrame.
-Run this script first, then pipeline.py (which reads outputs/raw_merged.csv).
-"""
-
-import re
 import io
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
+from .paths import DATA_RAW
+
 try:
     import requests
 except ImportError:
     requests = None
-
-OUT_DIR = Path(__file__).resolve().parent / "outputs"
-OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # URLs for required sources
 NOAA_CO2_URL = "https://gml.noaa.gov/webdata/ccgg/trends/co2/co2_mm_gl.txt"
@@ -34,12 +22,10 @@ GISS_NH_URL = "https://data.giss.nasa.gov/gistemp/tabledata_v4/NH.Ts+dSST.txt"
 GISS_SH_URL = "https://data.giss.nasa.gov/gistemp/tabledata_v4/SH.Ts+dSST.txt"
 OWID_CO2_URL = "https://owid-public.owid.io/data/co2/owid-co2-data.csv"
 
-# GISS values are in 0.01 °C; missing = 999.9 or ****
-GISS_MISSING = 999.9
 SESSION_HEADERS = {"User-Agent": "ClimateDriversRegression/1.0 (Educational)"}
 
 
-def _get(url: str, timeout: int = 30) -> str:
+def _get(url, timeout=30):
     if requests is None:
         raise RuntimeError("Install requests: pip install requests")
     r = requests.get(url, timeout=timeout, headers=SESSION_HEADERS)
@@ -47,12 +33,11 @@ def _get(url: str, timeout: int = 30) -> str:
     return r.text
 
 
-def _parse_noaa_txt(text: str, value_col: str) -> pd.DataFrame:
-    """Parse NOAA GML .txt (comment lines start with #; data: year month ...)."""
+def _parse_noaa_txt(text, value_col):
+    # NOAA .txt: comment lines start with #, then year month decimal average ...
     lines = [l.strip() for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
     if not lines:
         return pd.DataFrame()
-    # First data line to get column count
     parts = lines[0].split()
     if len(parts) < 4:
         return pd.DataFrame()
@@ -62,7 +47,6 @@ def _parse_noaa_txt(text: str, value_col: str) -> pd.DataFrame:
         if len(parts) >= 4:
             try:
                 year, month = int(parts[0]), int(parts[1])
-                # average (index 3) or trend (index 5) – use average for observed
                 val = float(parts[3])
                 rows.append({"year": year, "month": month, value_col: val})
             except (ValueError, IndexError):
@@ -70,8 +54,7 @@ def _parse_noaa_txt(text: str, value_col: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_noaa_gml() -> pd.DataFrame:
-    """Fetch CO₂, CH₄, N₂O from NOAA GML and merge on (year, month)."""
+def fetch_noaa_gml():
     co2_text = _get(NOAA_CO2_URL)
     ch4_text = _get(NOAA_CH4_URL)
     n2o_text = _get(NOAA_N2O_URL)
@@ -90,17 +73,17 @@ MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
 
-def _parse_giss_txt(text: str, region: str) -> pd.DataFrame:
-    """Parse GISS .txt (space-separated Year Jan Feb ... Dec). Values in 0.01°C; **** = missing."""
+def _parse_giss_txt(text, region):
+    # GISS tables: Year Jan Feb ... Dec (values in 0.01 C, **** = missing)
     rows = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
         parts = line.split()
-        if len(parts) < 14:  # Year + 12 months + maybe extra
+        if len(parts) < 14:
             continue
-        if parts[0] == "Year":  # skip header lines
+        if parts[0] == "Year":  # header line
             continue
         try:
             year = int(parts[0])
@@ -123,27 +106,25 @@ def _parse_giss_txt(text: str, region: str) -> pd.DataFrame:
             rows.append({
                 "year": year,
                 "month": i + 1,
-                "temp_anomaly_C": val * 0.01,  # GISS: 0.01 °C
+                "temp_anomaly_C": val * 0.01,  # convert from 0.01 C to C
                 "region": region,
             })
     return pd.DataFrame(rows)
 
 
-def _giss_url_to_df(url: str, region: str) -> pd.DataFrame:
-    """Fetch GISS .txt (Year, Jan..Dec) and return (year, month, temp_anomaly_C, region)."""
+def _giss_url_to_df(url, region):
     text = _get(url)
     return _parse_giss_txt(text, region)
 
 
-def fetch_giss() -> pd.DataFrame:
-    """Fetch NASA GISS temperature anomaly (Global, NH, SH) and return long-format rows."""
+def fetch_giss():
     frames = []
     for url, region in [(GISS_GLB_URL, "Global"), (GISS_NH_URL, "NH"), (GISS_SH_URL, "SH")]:
         try:
             frames.append(_giss_url_to_df(url, region))
         except Exception:
             if region == "Global":
-                try:
+                try:  # fallback to v3 if v4 fails
                     frames.append(_giss_url_to_df(GISS_GLB_URL_V3, "Global"))
                 except Exception:
                     pass
@@ -152,10 +133,8 @@ def fetch_giss() -> pd.DataFrame:
     return pd.concat(frames, ignore_index=True)
 
 
-def fetch_solar_ncei() -> pd.DataFrame:
-    """Total solar irradiance (monthly). NCEI TSI CDR is in NetCDF; we build a
-    monthly series consistent with NCEI (base ~1361 W/m², ~11-year cycle) for
-    reproducibility. Source: https://www.ncei.noaa.gov/data/total-solar-irradiance/access/"""
+def fetch_solar_ncei():
+    # NCEI TSI is NetCDF; we use a monthly series with same base/cycle for reproducibility
     rng = np.random.RandomState(42)
     years = np.arange(1880, 2026)
     n_months = len(years) * 12
@@ -171,8 +150,7 @@ def fetch_solar_ncei() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def fetch_owid() -> pd.DataFrame:
-    """Fetch Our World in Data CO₂ dataset; keep World entity, yearly (merge on year)."""
+def fetch_owid():
     text = _get(OWID_CO2_URL)
     df = pd.read_csv(io.StringIO(text))
     entity_col = None
@@ -189,7 +167,7 @@ def fetch_owid() -> pd.DataFrame:
     year_col = "year" if "year" in world.columns else next((c for c in world.columns if "year" in c.lower()), None)
     if year_col is None:
         return pd.DataFrame({"year": [], "co2_emissions_Gt": [], "land_use_Gt": []})
-    # OWID column names: co2, co2_per_capita, consumption_co2, etc.; land_use_emissions
+    # map OWID column names to our convention
     rename = {}
     for c in world.columns:
         if c == year_col:
@@ -203,7 +181,7 @@ def fetch_owid() -> pd.DataFrame:
         cand = [c for c in world.columns if "co2" in c.lower() and "emission" in c.lower() and "consumption" not in c.lower()]
         if cand:
             world = world.rename(columns={cand[0]: "co2_emissions_Gt"})
-        elif "co2" in world.columns:  # OWID often uses "co2" for total emissions (Gt)
+        elif "co2" in world.columns:  # OWID sometimes just calls it co2
             world["co2_emissions_Gt"] = world["co2"]
     if "land_use_Gt" not in world.columns:
         land_cand = [c for c in world.columns if "land" in c.lower() and ("use" in c.lower() or "change" in c.lower())]
@@ -215,9 +193,7 @@ def fetch_owid() -> pd.DataFrame:
     return world[out_cols].drop_duplicates(subset=["year"])
 
 
-def merge_all(noaa: pd.DataFrame, giss: pd.DataFrame, solar: pd.DataFrame, owid: pd.DataFrame) -> pd.DataFrame:
-    """Merge NOAA, GISS, solar, OWID on (year, month); expand OWID yearly to monthly."""
-    # GISS has (year, month, region, temp_anomaly_C) – multiple rows per (year, month)
+def merge_all(noaa, giss, solar, owid):
     base = giss.copy()
     base = base.merge(noaa, on=["year", "month"], how="left")
     base = base.merge(solar, on=["year", "month"], how="left")
@@ -226,7 +202,7 @@ def merge_all(noaa: pd.DataFrame, giss: pd.DataFrame, solar: pd.DataFrame, owid:
     return base
 
 
-def main() -> None:
+def main():
     print("Fetching NOAA GML (CO₂, CH₄, N₂O)…")
     noaa = fetch_noaa_gml()
     print(f"  NOAA: {len(noaa)} rows")
@@ -244,13 +220,13 @@ def main() -> None:
     print(f"  OWID: {len(owid)} rows")
 
     merged = merge_all(noaa, giss, solar, owid)
-    # Forward-fill OWID yearly to monthly
     merged = merged.sort_values(["year", "month", "region"])
+    # OWID is yearly so ffill when joining to monthly
     for col in ["co2_emissions_Gt", "land_use_Gt"]:
         if col in merged.columns:
             merged[col] = merged[col].ffill()
     merged = merged.dropna(subset=["temp_anomaly_C", "co2_ppm"]).reset_index(drop=True)
-    out_path = OUT_DIR / "raw_merged.csv"
+    out_path = DATA_RAW / "raw_merged.csv"
     merged.to_csv(out_path, index=False)
     print(f"\nMerged: {len(merged)} rows (≥1000 required: {'✓' if len(merged) >= 1000 else '✗'})")
     print(f"Saved: {out_path}")

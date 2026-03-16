@@ -14,5 +14,5 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Uncomment to avoid committing large generated images (reproducible via visualize.py)
-# outputs/*.png
+# Legacy (replaced by data/ and results/)
+outputs/
