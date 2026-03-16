@@ -21,7 +21,7 @@ def main() -> int:
         )
         if code.returncode != 0:
             return code.returncode
-    print("\nDone. Outputs: data/raw, data/processed, results/")
+    print("\nDone. Outputs: output/raw, output/processed, output/figures")
     return 0
 
 

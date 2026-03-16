@@ -1,4 +1,4 @@
-# Load raw merge, build features, fit models, write CSVs to data/processed/
+# Load raw merge, build features, fit models, write CSVs to output/processed/
 
 import pandas as pd
 import numpy as np
@@ -237,7 +237,7 @@ def main():
     importance_df.to_csv(DATA_PROCESSED / "feature_importance.csv", index=False)
     pred_df.to_csv(DATA_PROCESSED / "model_predictions.csv", index=False)
 
-    print("\n✓ Exported to data/processed/:")
+    print("\n✓ Exported to output/processed/:")
     print(f"  climate_features.csv, feature_importance.csv, model_predictions.csv")
 
 

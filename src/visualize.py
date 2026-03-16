@@ -1,4 +1,4 @@
-# Read data/processed/*.csv, write figures to results/
+# Read output/processed/*.csv, write figures to output/figures/
 
 import pandas as pd
 import numpy as np

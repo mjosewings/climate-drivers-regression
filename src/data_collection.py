@@ -1,4 +1,4 @@
-# Pull data from NOAA GML, NASA GISS, and OWID; merge to monthly and write data/raw/raw_merged.csv
+# Pull data from NOAA GML, NASA GISS, and OWID; merge to monthly and write output/raw/raw_merged.csv
 
 import io
 import pandas as pd
