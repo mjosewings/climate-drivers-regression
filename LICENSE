@@ -1,6 +1,11 @@
-MIT License
+MIT License (Academic Project)
 
 Copyright (c) 2026 Maria Joseph
+
+This repository was created as part of an academic coursework project on
+climate drivers and regression modelling. The code, configuration, and
+documentation are released under the MIT terms below so that others can
+reuse, adapt, or learn from the work.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +24,4 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
