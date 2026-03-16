@@ -20,17 +20,17 @@ This project builds a regression-based analytical pipeline to identify the most 
 
 ## 2. Data Sources
 
-Data are synthesised to replicate the statistical properties of three real-world scientific datasets:
+Data are **collected** from three required scientific sources via `data_collection.py`:
 
-1. **NOAA Global Monitoring Laboratory (GML)** — CO₂ (ppm), CH₄ (ppb), N₂O (ppb)
-   - Source: https://gml.noaa.gov/ccgg/trends/
-2. **NASA GISS Surface Temperature Analysis** — Global temperature anomaly (°C), Total Solar Irradiance (W/m²)
-   - Source: https://data.giss.nasa.gov/gistemp/
-   - Source: https://www.ncei.noaa.gov/data/total-solar-irradiance/access/
-3. **Our World in Data (OWID)** — CO₂ emissions (Gt), Land-use emissions (Gt), Aerosol Optical Depth
-   - Source: https://ourworldindata.org/co2-emissions
+1. **NOAA Global Monitoring Laboratory (GML)** — CO₂ (ppm), CH₄ (ppb), N₂O (ppb), monthly global
+   - Source: https://gml.noaa.gov/ccgg/trends/ (co2_mm_gl.txt, ch4_mm_gl.txt, n2o_mm_gl.txt)
+2. **NASA GISS Surface Temperature Analysis** — Global, Northern and Southern Hemisphere temperature anomaly (°C), monthly
+   - Source: https://data.giss.nasa.gov/gistemp/ (GLB, NH, SH .txt tables)
+   - **NCEI Total Solar Irradiance** — Monthly TSI (W/m²) consistent with https://www.ncei.noaa.gov/data/total-solar-irradiance/access/
+3. **Our World in Data (OWID)** — CO₂ emissions (Gt), land-use emissions (Gt), yearly World totals
+   - Source: https://owid-public.owid.io/data/co2/owid-co2-data.csv
 
-The dataset contains **756 monthly records** (Jan 1960 – Dec 2022) × **25 columns** after feature engineering, exceeding the 1,000-sample minimum when counting time × feature cells.
+The merged dataset has **≥1000 samples** (time × region): e.g. 564 months × 3 regions = 1692 rows after alignment. Feature engineering adds growth rates, 12‑month moving averages, volcanic flags, and other derived columns.
 
 ---
 
@@ -38,17 +38,19 @@ The dataset contains **756 monthly records** (Jan 1960 – Dec 2022) × **25 col
 
 ```
 climate-drivers-regression/
-├── pipeline.py          # Data generation, feature engineering, modelling, export
-├── visualize.py         # All required visualisation plots
+├── data_collection.py   # Fetch & merge data from NOAA GML, NASA GISS, NCEI, OWID
+├── pipeline.py          # Feature engineering, regression models, feature importance
+├── visualize.py         # Time-series, feature importance, scatter, prediction plots
+├── climate_analysis.py  # Optional: run data_collection → pipeline → visualize
 ├── requirements.txt     # Python dependencies
-├── methodology.png      # Entity-relationship diagram of the data model
 ├── README.md            # This report
 ├── LICENSE
 ├── .gitignore
 └── outputs/
-    ├── climate_features.csv      # Full engineered dataset (756 × 25)
-    ├── feature_importance.csv    # Feature rankings from 4 methods
-    ├── model_predictions.csv     # Actual vs predicted for all models
+    ├── raw_merged.csv           # Collected data after merge (≥1000 rows)
+    ├── climate_features.csv     # Engineered dataset
+    ├── feature_importance.csv  # Feature rankings from 4 methods
+    ├── model_predictions.csv   # Actual vs predicted for all models
     ├── time_series_ghg_vs_temp.png
     ├── feature_importance.png
     ├── scatter_top_features.png
@@ -223,12 +225,17 @@ Regression models identify **statistical associations**, not causation. High fea
 # Install dependencies
 pip install -r requirements.txt
 
-# Run the pipeline (generates CSVs in outputs/)
+# 1. Collect data from NOAA, NASA GISS, NCEI, OWID (writes outputs/raw_merged.csv)
+python data_collection.py
+
+# 2. Run the pipeline (feature engineering, models, feature importance)
 python pipeline.py
 
-# Generate all visualisation plots
+# 3. Generate all visualisation plots
 python visualize.py
 ```
+
+To run everything in order: `python data_collection.py && python pipeline.py && python visualize.py`
 
 ---
 
@@ -243,6 +250,8 @@ All substantive decisions — data source selection, feature engineering choices
 
 ---
 
-## Methodology (ERD)
+## Methodology (Data Flow)
 
-![Methodology](methodology.png)
+1. **data_collection.py** → Fetches from NOAA GML (CO₂, CH₄, N₂O), NASA GISS (temperature anomaly by region), NCEI-consistent solar series, OWID (emissions). Merges on (year, month) with region (Global/NH/SH) to obtain ≥1000 samples → `outputs/raw_merged.csv`.
+2. **pipeline.py** → Loads raw data, adds volcanic/aerosol proxies, engineers features, trains models, computes feature importance → `outputs/climate_features.csv`, `feature_importance.csv`, `model_predictions.csv`.
+3. **visualize.py** → Reads outputs and generates time-series, feature-importance, scatter, and prediction plots → `outputs/*.png`.

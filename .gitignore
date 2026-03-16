@@ -14,5 +14,5 @@ venv/
 .DS_Store
 Thumbs.db
 
-# Generated images (reproducible via visualize.py)
-outputs/*.png
+# Uncomment to avoid committing large generated images (reproducible via visualize.py)
+# outputs/*.png

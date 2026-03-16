@@ -2,17 +2,19 @@
 pipeline.py – End-to-end climate-drivers regression pipeline.
 
 This script:
-  1. Generates a realistic multi-source climate dataset (monthly, 1960-2022)
-     modelled after NOAA GML, NASA GISS, and Our World in Data sources.
-  2. Engineers derived features (growth rates, moving averages, interaction
-     terms, seasonal encodings, volcanic flags, etc.).
+  1. Loads the merged dataset from outputs/raw_merged.csv (produced by
+     data_collection.py from NOAA GML, NASA GISS, NCEI, OWID), or falls back
+     to synthetic data if the file is missing.
+  2. Engineers derived features (growth rates, moving averages, volcanic
+     flags, aerosol proxy, seasonal encodings, etc.).
   3. Trains four regression models to predict global temperature anomaly.
-  4. Computes feature-importance scores using four complementary methods.
-  5. Exports three CSV artefacts to ./outputs/ for downstream analysis and
-     visualisation.
+  4. Computes feature-importance scores (standardized coefficients, RF/GB
+     importance, permutation importance).
+  5. Exports CSV artefacts to ./outputs/ for visualization and reporting.
 
 Usage
 -----
+    python data_collection.py   # fetch and merge data first (≥1000 samples)
     python pipeline.py
 """
 
@@ -68,91 +70,86 @@ FEATURE_CATEGORIES = [
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1. Data generation (simulating multi-source collection)
+# 1. Data loading (collected or fallback synthetic)
 # ═══════════════════════════════════════════════════════════════════════════
-def generate_raw_data() -> pd.DataFrame:
-    """Synthesise a realistic monthly climate dataset (1960-01 to 2022-12).
+def _add_volcanic_and_aerosol(df: pd.DataFrame) -> pd.DataFrame:
+    """Add volcanic_flag and aerosol_AOD if missing (from known eruptions)."""
+    if "volcanic_flag" not in df.columns:
+        df["volcanic_flag"] = 0
+        # Agung 1963-03, El Chichón 1982-04, Pinatubo 1991-06 — flag ~24 months each
+        for start_year, start_month in [(1963, 3), (1982, 4), (1991, 6)]:
+            for dur in range(24):
+                m = start_month + dur
+                y = start_year + (m - 1) // 12
+                m = (m - 1) % 12 + 1
+                df.loc[(df["year"] == y) & (df["month"] == m), "volcanic_flag"] = 1
+    if "aerosol_AOD" not in df.columns:
+        # Simple proxy: baseline + volcanic contribution
+        df["aerosol_AOD"] = 0.08
+        df.loc[df["volcanic_flag"] == 1, "aerosol_AOD"] = 0.15
+    return df
 
-    Returns a DataFrame with columns modelled after three real-world sources:
-      - NOAA GML  → CO₂, CH₄, N₂O concentrations
-      - NASA GISS → solar irradiance, volcanic forcing, ENSO proxy,
-                     temperature anomaly
-      - OWID      → CO₂ emissions, land-use emissions, aerosol optical depth
-    """
+
+def load_raw_data() -> pd.DataFrame:
+    """Load merged dataset from data_collection.py output, or generate synthetic fallback."""
+    raw_path = OUT_DIR / "raw_merged.csv"
+    if raw_path.exists():
+        df = pd.read_csv(raw_path)
+        df["date"] = pd.to_datetime(df["date"])
+        if "co2_emissions_Gt" not in df.columns:
+            df["co2_emissions_Gt"] = np.nan
+        if "land_use_Gt" not in df.columns:
+            df["land_use_Gt"] = np.nan
+        # Fill missing GHG (e.g. CH4/N2O start later) and emissions for modelling
+        for col in ["ch4_ppb", "n2o_ppb"]:
+            if col in df.columns and df[col].isna().any():
+                df[col] = df[col].ffill().bfill()
+        for col in ["co2_emissions_Gt", "land_use_Gt"]:
+            if col in df.columns and df[col].isna().all():
+                df[col] = 0.0  # allow model to run; interpret as missing
+            elif col in df.columns:
+                df[col] = df[col].ffill().bfill().fillna(0)
+        df = _add_volcanic_and_aerosol(df)
+        return df
+    # Fallback: synthetic data (run data_collection.py for real data)
+    return generate_raw_data()
+
+
+def generate_raw_data() -> pd.DataFrame:
+    """Synthesise a monthly climate dataset (1960–2022) when raw_merged.csv is missing."""
     dates = pd.date_range(start="1960-01", end="2022-12", freq="MS")
     N = len(dates)
     t = np.arange(N)
     year_frac = 1960 + t / 12
 
-    # -- NOAA GML: greenhouse-gas concentrations -------------------------
     seasonal_co2 = 3.0 * np.sin(2 * np.pi * t / 12 + 0.5)
     co2 = (315 + 1.73 * (t / 12) + 0.002 * (t / 12) ** 2
            + seasonal_co2 + np.random.normal(0, 0.3, N))
-
-    ch4_base = np.where(
-        t < 288, 1580 + 2.5 * (t / 12 - 24),
-        np.where(t < 408, 1700 + 0.3 * (t / 12 - 48),
-                 1735 + 4.8 * (t / 12 - 54)),
-    )
+    ch4_base = np.where(t < 288, 1580 + 2.5 * (t / 12 - 24),
+                        np.where(t < 408, 1700 + 0.3 * (t / 12 - 48), 1735 + 4.8 * (t / 12 - 54)))
     ch4 = ch4_base + 20 * np.sin(2 * np.pi * t / 12 + 1.2) + np.random.normal(0, 5, N)
-
     n2o = 298 + 0.75 * (t / 12) + np.random.normal(0, 0.2, N)
-
-    # -- NASA GISS: solar, volcanic, ENSO, temperature anomaly -----------
-    solar = (1361
-             + 0.7 * np.sin(2 * np.pi * t / 132)
-             + 0.3 * np.sin(2 * np.pi * t / 66)
-             + np.random.normal(0, 0.15, N))
-
+    solar = 1361 + 0.7 * np.sin(2 * np.pi * t / 132) + 0.3 * np.sin(2 * np.pi * t / 66) + np.random.normal(0, 0.15, N)
     volcanic_forcing = np.zeros(N)
     for _, (idx, amp, dur) in VOLCANIC_EVENTS.items():
         for i in range(min(dur, N - idx)):
             volcanic_forcing[idx + i] += amp * np.exp(-i / 12)
-
-    enso = (0.15 * np.sin(2 * np.pi * t / 57 + 0.8)
-            + 0.10 * np.sin(2 * np.pi * t / 30 + 1.2))
-
-    # Target variable – temperature anomaly driven by multiple factors
-    co2_delta = np.maximum(co2 - 315, 0)  # clip to avoid NaN from neg ** 1.2
-    temp_anomaly = (
-        -0.35
-        + 0.0012 * co2_delta ** 1.2
-        + 0.00025 * (ch4 - 1580)
-        + 0.00012 * (n2o - 298)
-        + 0.0018 * (solar - 1361)
-        + volcanic_forcing
-        + enso
-        + np.random.normal(0, 0.05, N)
-    )
-
-    # -- OWID: anthropogenic indicators ----------------------------------
+    enso = 0.15 * np.sin(2 * np.pi * t / 57 + 0.8) + 0.10 * np.sin(2 * np.pi * t / 30 + 1.2)
+    co2_delta = np.maximum(co2 - 315, 0)
+    temp_anomaly = (-0.35 + 0.0012 * co2_delta ** 1.2 + 0.00025 * (ch4 - 1580) + 0.00012 * (n2o - 298)
+                    + 0.0018 * (solar - 1361) + volcanic_forcing + enso + np.random.normal(0, 0.05, N))
     co2_emissions = 9 + 0.45 * (year_frac - 1960) + np.random.normal(0, 0.4, N)
     land_use = 3.5 + 0.012 * (year_frac - 1960) + np.random.normal(0, 0.3, N)
-    aod = np.clip(
-        0.08 + 0.0004 * (year_frac - 1960)
-        + np.abs(volcanic_forcing) * 0.5
-        + np.random.normal(0, 0.005, N),
-        0, None,
-    )
+    aod = np.clip(0.08 + 0.0004 * (year_frac - 1960) + np.abs(volcanic_forcing) * 0.5 + np.random.normal(0, 0.005, N), 0, None)
 
-    # -- Assemble raw DataFrame ------------------------------------------
     df = pd.DataFrame({
-        "date":             dates,
-        "year":             dates.year,
-        "month":            dates.month,
-        "co2_ppm":          co2,
-        "ch4_ppb":          ch4,
-        "n2o_ppb":          n2o,
-        "solar_W_m2":       solar,
-        "temp_anomaly_C":   temp_anomaly,
-        "co2_emissions_Gt": co2_emissions,
-        "land_use_Gt":      land_use,
-        "aerosol_AOD":      aod,
-        "volcanic_flag":    0,
+        "date": dates, "year": dates.year, "month": dates.month,
+        "co2_ppm": co2, "ch4_ppb": ch4, "n2o_ppb": n2o, "solar_W_m2": solar,
+        "temp_anomaly_C": temp_anomaly, "co2_emissions_Gt": co2_emissions,
+        "land_use_Gt": land_use, "aerosol_AOD": aod, "volcanic_flag": 0,
     })
     for _, (idx, _, dur) in VOLCANIC_EVENTS.items():
-        df.loc[df.index[idx:idx + dur], "volcanic_flag"] = 1
-
+        df.loc[df.index[idx : idx + dur], "volcanic_flag"] = 1
     return df
 
 
@@ -162,38 +159,42 @@ def generate_raw_data() -> pd.DataFrame:
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     """Derive climate-driver features from the raw merged dataset.
 
-    Adds growth rates, 12-month moving averages, cumulative aerosol load,
-    ENSO proxy, a CO₂×solar interaction term, and cyclical month encodings.
+    When multiple rows per date (e.g. region = Global/NH/SH), global-series
+    features (growth, rolling) are computed per date then merged back.
     """
-    df = df.sort_values("date").reset_index(drop=True)
-    t = np.arange(len(df))
+    df = df.sort_values(["date", "region"] if "region" in df.columns else "date").reset_index(drop=True)
+    has_region = "region" in df.columns
 
-    # Time index
-    df["months_since_1960"] = t
+    if has_region:
+        # One row per date for global series (co2, ch4, n2o, solar, aerosol)
+        one = df.drop_duplicates(subset=["date"], keep="first")[["date", "year", "month", "co2_ppm", "ch4_ppb", "n2o_ppb", "solar_W_m2", "aerosol_AOD"]].sort_values("date").reset_index(drop=True)
+        t = np.arange(len(one))
+        one["months_since_1960"] = (one["year"] - one["year"].min()) * 12 + (one["month"] - 1)
+        one["co2_growth"] = one["co2_ppm"].diff().fillna(0)
+        one["ch4_growth"] = one["ch4_ppb"].diff().fillna(0)
+        one["n2o_growth"] = one["n2o_ppb"].diff().fillna(0)
+        for col in ["co2_ppm", "ch4_ppb", "solar_W_m2", "aerosol_AOD"]:
+            one[f"{col}_ma12"] = one[col].rolling(12, min_periods=1).mean()
+        one["cum_aerosol"] = one["aerosol_AOD"].cumsum() / 100
+        one["enso_proxy"] = 0.15 * np.sin(2 * np.pi * t / 57 + 0.8)
+        one["co2_x_solar"] = (one["co2_ppm"] - 315) * (one["solar_W_m2"] - 1361)
+        derived = ["months_since_1960", "co2_growth", "ch4_growth", "n2o_growth", "co2_ppm_ma12", "ch4_ppb_ma12", "solar_W_m2_ma12", "aerosol_AOD_ma12", "cum_aerosol", "enso_proxy", "co2_x_solar"]
+        df = df.merge(one[["date"] + derived], on="date", how="left")
+    else:
+        t = np.arange(len(df))
+        df["months_since_1960"] = (df["year"] - df["year"].min()) * 12 + (df["month"] - 1)
+        df["co2_growth"] = df["co2_ppm"].diff().fillna(0)
+        df["ch4_growth"] = df["ch4_ppb"].diff().fillna(0)
+        df["n2o_growth"] = df["n2o_ppb"].diff().fillna(0)
+        for col in ["co2_ppm", "ch4_ppb", "solar_W_m2", "aerosol_AOD"]:
+            df[f"{col}_ma12"] = df[col].rolling(12, min_periods=1).mean()
+        df["cum_aerosol"] = df["aerosol_AOD"].cumsum() / 100
+        df["enso_proxy"] = 0.15 * np.sin(2 * np.pi * t / 57 + 0.8)
+        df["co2_x_solar"] = (df["co2_ppm"] - 315) * (df["solar_W_m2"] - 1361)
 
-    # Month-over-month growth rates
-    df["co2_growth"] = df["co2_ppm"].diff().fillna(0)
-    df["ch4_growth"] = df["ch4_ppb"].diff().fillna(0)
-    df["n2o_growth"] = df["n2o_ppb"].diff().fillna(0)
-
-    # 12-month rolling averages (smooth seasonal noise)
-    for col in ["co2_ppm", "ch4_ppb", "solar_W_m2", "aerosol_AOD"]:
-        df[f"{col}_ma12"] = df[col].rolling(12, min_periods=1).mean()
-
-    # Cumulative aerosol burden (proxy for long-term volcanic dimming)
-    df["cum_aerosol"] = df["aerosol_AOD"].cumsum() / 100
-
-    # ENSO proxy (quasi-periodic oscillation)
-    df["enso_proxy"] = 0.15 * np.sin(2 * np.pi * t / 57 + 0.8)
-
-    # Interaction: CO₂ deviation × solar deviation
-    df["co2_x_solar"] = (df["co2_ppm"] - 315) * (df["solar_W_m2"] - 1361)
-
-    # Cyclical month encoding (preserves continuity Dec → Jan)
     df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
     df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
-
-    df.dropna(inplace=True)
+    df.dropna(subset=FEATURES + [TARGET], inplace=True)
     df.reset_index(drop=True, inplace=True)
     return df
 
@@ -263,7 +264,7 @@ def compute_feature_importance(fitted, X_test, y_test) -> pd.DataFrame:
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. Prediction table
 # ═══════════════════════════════════════════════════════════════════════════
-def build_prediction_table(df, fitted, X_sc, y_test) -> pd.DataFrame:
+def build_prediction_table(df, fitted, X_sc, test_idx) -> pd.DataFrame:
     """Create a DataFrame with actual values, train/test labels, and
     predictions from every fitted model."""
     pred_df = df[[
@@ -273,7 +274,7 @@ def build_prediction_table(df, fitted, X_sc, y_test) -> pd.DataFrame:
     ]].copy()
 
     pred_df["split"] = "train"
-    pred_df.loc[pred_df.index[-len(y_test):], "split"] = "test"
+    pred_df.loc[test_idx, "split"] = "test"
 
     for name, model in fitted.items():
         col = name.lower().replace(" ", "_")
@@ -286,9 +287,13 @@ def build_prediction_table(df, fitted, X_sc, y_test) -> pd.DataFrame:
 # Main
 # ═══════════════════════════════════════════════════════════════════════════
 def main() -> None:
-    # Step 1 – generate (or load) raw data
-    print("Generating multi-source climate dataset …")
-    df = generate_raw_data()
+    # Step 1 – load collected data or fallback synthetic
+    raw_path = OUT_DIR / "raw_merged.csv"
+    if raw_path.exists():
+        print("Loading collected data (raw_merged.csv) …")
+    else:
+        print("raw_merged.csv not found; using synthetic data. Run: python data_collection.py")
+    df = load_raw_data()
 
     # Step 2 – feature engineering
     df = engineer_features(df)
@@ -301,9 +306,13 @@ def main() -> None:
     scaler = StandardScaler()
     X_sc   = scaler.fit_transform(X)
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X_sc, y, test_size=0.30, random_state=RANDOM_SEED,
+    train_idx, test_idx = train_test_split(
+        np.arange(len(y)), test_size=0.30, random_state=RANDOM_SEED,
     )
+    X_train = X_sc[train_idx]
+    X_test = X_sc[test_idx]
+    y_train = y[train_idx]
+    y_test = y[test_idx]
 
     # Step 4 – train models
     fitted = train_models(X_train, X_test, y_train, y_test)
@@ -312,7 +321,7 @@ def main() -> None:
     importance_df = compute_feature_importance(fitted, X_test, y_test)
 
     # Step 6 – prediction table
-    pred_df = build_prediction_table(df, fitted, X_sc, y_test)
+    pred_df = build_prediction_table(df, fitted, X_sc, test_idx)
 
     # Step 7 – export
     df.to_csv(OUT_DIR / "climate_features.csv", index=False)

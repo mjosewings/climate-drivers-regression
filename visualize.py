@@ -37,27 +37,35 @@ COLORS = sns.color_palette("colorblind")
 # ═══════════════════════════════════════════════════════════════════════════
 def plot_timeseries(df: pd.DataFrame) -> None:
     """Four-panel time-series: CO₂, CH₄, N₂O, and temperature anomaly."""
+    # If multiple regions, use Global only for a single series per date
+    if "region" in df.columns and df["region"].nunique() > 1:
+        plot_df = df[df["region"] == "Global"].sort_values("date").copy()
+    else:
+        plot_df = df.sort_values("date").copy()
+    if plot_df.empty:
+        plot_df = df.drop_duplicates(subset="date").sort_values("date")
+
     fig, axes = plt.subplots(4, 1, figsize=(14, 10), sharex=True)
 
     # CO2
-    axes[0].plot(df["date"], df["co2_ppm"], color=COLORS[0], linewidth=0.8)
+    axes[0].plot(plot_df["date"], plot_df["co2_ppm"], color=COLORS[0], linewidth=0.8)
     axes[0].set_ylabel("CO2 (ppm)")
     axes[0].set_title("Atmospheric CO2 Concentration")
 
     # CH4
-    axes[1].plot(df["date"], df["ch4_ppb"], color=COLORS[1], linewidth=0.8)
+    axes[1].plot(plot_df["date"], plot_df["ch4_ppb"], color=COLORS[1], linewidth=0.8)
     axes[1].set_ylabel("CH4 (ppb)")
     axes[1].set_title("Atmospheric CH4 Concentration")
 
     # N2O
-    axes[2].plot(df["date"], df["n2o_ppb"], color=COLORS[2], linewidth=0.8)
+    axes[2].plot(plot_df["date"], plot_df["n2o_ppb"], color=COLORS[2], linewidth=0.8)
     axes[2].set_ylabel("N2O (ppb)")
     axes[2].set_title("Atmospheric N2O Concentration")
 
     # Temperature anomaly
-    axes[3].plot(df["date"], df["temp_anomaly_C"], color=COLORS[3],
+    axes[3].plot(plot_df["date"], plot_df["temp_anomaly_C"], color=COLORS[3],
                  linewidth=0.8, alpha=0.5, label="Monthly")
-    axes[3].plot(df["date"], df["temp_anomaly_C"].rolling(12).mean(),
+    axes[3].plot(plot_df["date"], plot_df["temp_anomaly_C"].rolling(12, min_periods=1).mean(),
                  color="black", linewidth=1.5, label="12-month MA")
     axes[3].set_ylabel("Temp Anomaly (°C)")
     axes[3].set_title("Global Temperature Anomaly")
