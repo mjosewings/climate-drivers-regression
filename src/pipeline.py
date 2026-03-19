@@ -1,4 +1,11 @@
-# Load raw merge, build features, fit models, write CSVs to output/processed/
+# Modeling pipeline:
+# 1) Load the merged raw drivers from output/raw/raw_merged.csv
+# 2) Create engineered predictors (growth rates, moving averages, interaction, seasonality)
+# 3) Fit four regression models and rank features
+# 4) Write outputs for the plotting step:
+#    - output/processed/climate_features.csv
+#    - output/processed/feature_importance.csv
+#    - output/processed/model_predictions.csv
 
 import pandas as pd
 import numpy as np
@@ -14,7 +21,9 @@ from .paths import DATA_RAW, DATA_PROCESSED
 RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
-# eruption index (months from 1960-01), forcing amplitude, duration in months
+# Volcanic events used to create a simple aerosol/volcanic forcing proxy.
+# The tuples represent:
+#   (month_index_from_1960_01, forcing_amplitude, duration_months)
 VOLCANIC_EVENTS = {
     "Agung_1963":      (36,  -0.3, 24),
     "El_Chichon_1982": (264, -0.4, 24),
@@ -46,6 +55,8 @@ FEATURE_CATEGORIES = [
 
 
 def _add_volcanic_and_aerosol(df):
+    # If the raw table does not contain the volcanic flag / aerosol proxy,
+    # create a deterministic proxy from known eruption dates.
     if "volcanic_flag" not in df.columns:
         df["volcanic_flag"] = 0
         # Agung, El Chichón, Pinatubo
@@ -62,6 +73,8 @@ def _add_volcanic_and_aerosol(df):
 
 
 def load_raw_data():
+    # Prefer the collected raw dataset. If it is missing, generate a synthetic
+    # fallback so the rest of the project can still run end-to-end.
     raw_path = DATA_RAW / "raw_merged.csv"
     if raw_path.exists():
         df = pd.read_csv(raw_path)
@@ -85,6 +98,8 @@ def load_raw_data():
 
 
 def generate_raw_data():
+    # Synthetic fallback: generates a realistic-looking monthly dataset with
+    # similar structure to the merged real sources.
     dates = pd.date_range(start="1960-01", end="2022-12", freq="MS")
     N = len(dates)
     t = np.arange(N)
@@ -122,6 +137,16 @@ def generate_raw_data():
 
 
 def engineer_features(df):
+    # Core feature engineering:
+    # - Growth rates from month-to-month differences
+    # - 12-month moving averages to smooth seasonal variability
+    # - Interaction term (CO2 deviation × solar deviation)
+    # - Cyclical month encodings (sin/cos)
+    # - A proxy for long-term aerosol load (cumulative AOD)
+    #
+    # When multiple regions exist per date, compute global-derived features
+    # per date (single sequence) and merge them back to keep one feature row
+    # per region record.
     df = df.sort_values(["date", "region"] if "region" in df.columns else "date").reset_index(drop=True)
     # when we have Global/NH/SH, growth and rolling are per-date so compute once and merge back
     has_region = "region" in df.columns
@@ -160,7 +185,8 @@ def engineer_features(df):
 
 
 def train_models(X_train, X_test, y_train, y_test):
-    # linear + ridge for interpretability, RF and GB for comparison
+    # Linear + ridge are included for interpretability, while RF/GB provide
+    # non-linear baselines for comparison.
     models = {
         "Linear Regression": LinearRegression(),
         "Ridge Regression":  Ridge(alpha=1.0),
@@ -180,6 +206,10 @@ def train_models(X_train, X_test, y_train, y_test):
 
 
 def compute_feature_importance(fitted, X_test, y_test):
+    # Combine complementary ranking approaches:
+    # - Linear regression: magnitude of coefficients (interpretable baseline)
+    # - RF / GB: impurity-based importance (captures non-linear interactions)
+    # - Permutation: how much predictive score drops when feature values are shuffled
     lr_coefs = np.abs(fitted["Linear Regression"].coef_)
     rf_imp = fitted["Random Forest"].feature_importances_
     gb_imp = fitted["Gradient Boosting"].feature_importances_
@@ -198,6 +228,8 @@ def compute_feature_importance(fitted, X_test, y_test):
 
 
 def build_prediction_table(df, fitted, X_sc, test_idx):
+    # Export a per-row table holding actual values and model predictions.
+    # The split label is used by visualize.py to highlight the test region.
     pred_df = df[["date", "year", "month", "temp_anomaly_C", "co2_ppm", "ch4_ppb", "solar_W_m2", "aerosol_AOD", "enso_proxy", "volcanic_flag"]].copy()
     pred_df["split"] = "train"
     pred_df.loc[test_idx, "split"] = "test"
@@ -220,9 +252,12 @@ def run():
 
     X = df[FEATURES].values
     y = df[TARGET].values
+    # Standardize features so linear models work reliably and so coefficient
+    # magnitudes are more comparable across predictors.
     scaler = StandardScaler()
     X_sc = scaler.fit_transform(X)
 
+    # Use a reproducible random split for a stable evaluation set.
     train_idx, test_idx = train_test_split(np.arange(len(y)), test_size=0.30, random_state=RANDOM_SEED)
     X_train = X_sc[train_idx]
     X_test = X_sc[test_idx]

@@ -1,4 +1,11 @@
-# Pull data from NOAA GML, NASA GISS, and OWID; merge to monthly and write output/raw/raw_merged.csv
+# Data collection + merging step.
+# Pulls the required drivers from NOAA GML (CO2/CH4/N2O), NASA GISS (temperature anomaly),
+# OWID (emissions / land-use), and adds a monthly solar irradiance series.
+#
+# Output:
+#   output/raw/raw_merged.csv
+# with one row per (year, month, region).
+# The pipeline uses this file as the single input source for feature engineering.
 
 import io
 import pandas as pd
@@ -134,7 +141,9 @@ def fetch_giss():
 
 
 def fetch_solar_ncei():
-    # NCEI TSI is NetCDF; we use a monthly series with same base/cycle for reproducibility
+    # NCEI provides a NetCDF TSI product; reading NetCDF adds extra dependencies.
+    # For a self-contained course project we generate a deterministic monthly TSI-like series
+    # with an approximate solar cycle so the regression has a solar driver to learn from.
     rng = np.random.RandomState(42)
     years = np.arange(1880, 2026)
     n_months = len(years) * 12
@@ -151,6 +160,10 @@ def fetch_solar_ncei():
 
 
 def fetch_owid():
+    # OWID is delivered as a wide CSV with many indicator columns.
+    # We filter to the "World" entity and map relevant columns into:
+    #   - co2_emissions_Gt
+    #   - land_use_Gt
     text = _get(OWID_CO2_URL)
     df = pd.read_csv(io.StringIO(text))
     entity_col = None
@@ -194,6 +207,9 @@ def fetch_owid():
 
 
 def merge_all(noaa, giss, solar, owid):
+    # Join everything on (year, month). GISS provides separate series for
+    # Global, NH, and SH, so the merged output contains 3 regions per date.
+    # OWID is yearly, so we forward-fill the values when joining to monthly.
     base = giss.copy()
     base = base.merge(noaa, on=["year", "month"], how="left")
     base = base.merge(solar, on=["year", "month"], how="left")
@@ -203,6 +219,7 @@ def merge_all(noaa, giss, solar, owid):
 
 
 def run():
+    # Each block fetches one source dataset, then we merge to one table.
     print("Fetching NOAA GML (CO₂, CH₄, N₂O)…")
     noaa = fetch_noaa_gml()
     print(f"  NOAA: {len(noaa)} rows")
@@ -225,6 +242,7 @@ def run():
     for col in ["co2_emissions_Gt", "land_use_Gt"]:
         if col in merged.columns:
             merged[col] = merged[col].ffill()
+    # Keep rows where the target and one core explanatory variable exist.
     merged = merged.dropna(subset=["temp_anomaly_C", "co2_ppm"]).reset_index(drop=True)
     out_path = DATA_RAW / "raw_merged.csv"
     merged.to_csv(out_path, index=False)

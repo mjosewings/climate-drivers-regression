@@ -50,6 +50,7 @@ top_drivers <- pick_top_drivers(feature_importance)
 write_csv(tibble(feature = top_drivers), output_csv)
 
 global_df <- features_df %>%
+  # Keep only the global region (the response curves are meant for the main target)
   filter(region == "Global") %>%
   select(any_of(c("temp_anomaly_C", "region", top_drivers)))
 
@@ -57,6 +58,9 @@ global_df <- global_df %>%
   filter(!is.na(temp_anomaly_C))
 
 make_response_stats <- function(df, driver, bins) {
+  # Compute quantile breakpoints so each bin has roughly equal counts.
+  # This improves stability compared to uniform bin widths when drivers
+  # are skewed.
   x <- df[[driver]]
   qs <- quantile(x, probs = seq(0, 1, length.out = bins + 1), na.rm = TRUE, type = 7)
   qs <- unique(qs)

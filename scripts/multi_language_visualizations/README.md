@@ -1,4 +1,4 @@
-Extra visualizations (optional)
+Multi-language visualization extras (optional)
 
 These scripts generate additional figures in different languages. They read the
 CSV outputs produced by the Python pipeline under `output/processed/` and write

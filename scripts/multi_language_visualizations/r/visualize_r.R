@@ -5,7 +5,8 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
-# Read processed outputs from the project
+# Load processed CSV outputs produced by the Python pipeline.
+# These files are treated as the canonical dataset for the R diagnostics.
 features_path <- 'output/processed/climate_features.csv'
 preds_path    <- 'output/processed/model_predictions.csv'
 fig_dir <- 'output/figures'
@@ -18,7 +19,8 @@ preds <- read.csv(preds_path, stringsAsFactors = FALSE)
 # ------------------------------
 # Figure: Feature correlation vs target
 # ------------------------------
-# Feature columns: numeric columns excluding identifiers + target
+# Identify candidate feature columns.
+# We keep only numeric columns and drop identifiers + the target.
 id_cols <- c('date', 'year', 'month', 'region', 'temp_anomaly_C')
 num_cols <- names(features)[sapply(features, is.numeric)]
 feature_cols <- setdiff(num_cols, c('temp_anomaly_C'))
@@ -67,6 +69,8 @@ pred_cols <- names(preds)[grepl('^pred_', names(preds))]
 
 preds_test <- preds |> filter(split == 'test')
 
+# Build a long-format table with one residual value per test observation
+# and per model (residual = actual - predicted).
 res_long <- do.call(rbind, lapply(pred_cols, function(pc) {
   model <- gsub('^pred_', '', pc)
   model <- gsub('_', ' ', model)
@@ -77,6 +81,8 @@ res_long <- do.call(rbind, lapply(pred_cols, function(pc) {
   )
 }))
 
+# Consistent ordering across the residuals and predicted-vs-actual figures.
+# Keeping a fixed order avoids facet reordering when rendering.
 model_order <- c('Linear Regression', 'Ridge Regression', 'Random Forest', 'Gradient Boosting')
 model_colors <- c(
   'Linear Regression' = '#4E79A7',
@@ -117,6 +123,7 @@ ggsave(out2, p2, width = 11, height = 7, dpi = 220)
 # Figure: Predicted vs actual (faceted, test set)
 # ------------------------------
 pred_long <- do.call(rbind, lapply(pred_cols, function(pc) {
+  # Create a long table with actual vs predicted pairs on the test set.
   model <- gsub('^pred_', '', pc)
   model <- gsub('_', ' ', model)
   model <- tools::toTitleCase(model)
@@ -152,7 +159,10 @@ p3 <- ggplot(pred_long, aes(x = actual, y = predicted)) +
     axis.title = element_text(size = 12)
   )
 
-# Add per-model R² annotation (computed on the test set)
+# Add per-model R² annotation (computed on the test set).
+# R² = 1 - SS_res / SS_tot, where:
+#   SS_res = sum((actual - predicted)^2)
+#   SS_tot = sum((actual - mean(actual))^2)
 metrics <- pred_long |>
   group_by(model) |>
   summarise(
@@ -188,3 +198,4 @@ cat('Saved figures to output/figures:\n')
 cat(' -', out1, '\n')
 cat(' -', out2, '\n')
 cat(' -', out3, '\n')
+

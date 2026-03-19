@@ -1,4 +1,6 @@
-# Read output/processed/*.csv, write figures to output/figures/
+# Plotting step.
+# Reads the engineered CSV outputs from output/processed/ and writes figures
+# into output/figures/ used in the methodology write-up.
 
 import pandas as pd
 import numpy as np
@@ -14,11 +16,12 @@ COLORS = sns.color_palette("colorblind")
 
 
 def plot_timeseries(df):
-    # one series per date when we have regions
+    # If multiple regions exist, draw the Global series once per date
     if "region" in df.columns and df["region"].nunique() > 1:
         plot_df = df[df["region"] == "Global"].sort_values("date").copy()
     else:
         plot_df = df.sort_values("date").copy()
+    # Fallback: if Global is missing, show the first available per-date series.
     if plot_df.empty:
         plot_df = df.drop_duplicates(subset="date").sort_values("date")
 
@@ -51,6 +54,7 @@ def plot_timeseries(df):
 
 
 def plot_feature_importance(imp_df):
+    # Use only top features so the chart stays readable.
     top = imp_df.copy()
     top["abs_perm"] = top["permutation"].abs()
     top = top.nlargest(15, "abs_perm")
@@ -83,6 +87,8 @@ def plot_feature_importance(imp_df):
 
 
 def plot_scatter_top_features(df, imp_df):
+    # Scatter + linear fit for the top drivers so readers can see direction
+    # and strength of association with temperature.
     top3 = imp_df.nlargest(3, "permutation")["feature"].tolist()
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     for ax, feat in zip(axes, top3):
@@ -172,6 +178,7 @@ def plot_predictions(pred_df):
 
 
 def run():
+    # Read processed outputs and generate the full set of course figures.
     print("Loading data …")
     features_df = pd.read_csv(DATA_PROCESSED / "climate_features.csv", parse_dates=["date"])
     importance_df = pd.read_csv(DATA_PROCESSED / "feature_importance.csv")

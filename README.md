@@ -226,12 +226,20 @@ pip install -r requirements.txt
 
 # Option A: run the full pipeline (recommended)
 python climate_analysis.py
+# -> output/raw/raw_merged.csv
+# -> output/processed/*.csv
+# -> output/figures/*.png (Python figures only; see optional steps below)
 
 # Option B: run steps individually (from repo root)
 python -m src.data_collection   # → output/raw/raw_merged.csv
 python -m src.pipeline          # → output/processed/*.csv
 python -m src.visualize         # → output/figures/*.png
-Rscript R/visualize_r.R         # → output/figures/r_*.png
+Rscript scripts/multi_language_visualizations/r/visualize_r.R  # → output/figures/r_*.png
+Rscript scripts/multi_language_visualizations/r/plot_response_curves_top_drivers.R  # → output/figures/extra_r_response_curves_top_drivers.png
+
+# Optional multi-language extras:
+# Julia:   julia scripts/multi_language_visualizations/julia/plot_residuals_test_models.jl
+# MATLAB:  run scripts/multi_language_visualizations/matlab/plot_lagged_correlation_top_drivers.m in MATLAB
 ```
 
 ---
