@@ -121,7 +121,7 @@ def plot_predictions(pred_df):
     print("  ✓ model_predictions.png")
 
 
-def main():
+def run():
     print("Loading data …")
     features_df = pd.read_csv(DATA_PROCESSED / "climate_features.csv", parse_dates=["date"])
     importance_df = pd.read_csv(DATA_PROCESSED / "feature_importance.csv")
@@ -139,4 +139,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run()

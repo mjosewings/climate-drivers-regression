@@ -207,7 +207,7 @@ def build_prediction_table(df, fitted, X_sc, test_idx):
     return pred_df
 
 
-def main():
+def run():
     raw_path = DATA_RAW / "raw_merged.csv"
     if raw_path.exists():
         print("Loading collected data (raw_merged.csv) …")
@@ -242,4 +242,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run()

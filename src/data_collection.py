@@ -202,7 +202,7 @@ def merge_all(noaa, giss, solar, owid):
     return base
 
 
-def main():
+def run():
     print("Fetching NOAA GML (CO₂, CH₄, N₂O)…")
     noaa = fetch_noaa_gml()
     print(f"  NOAA: {len(noaa)} rows")
@@ -233,4 +233,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run()

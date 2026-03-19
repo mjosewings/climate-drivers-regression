@@ -12,7 +12,7 @@ STEPS = [
 ]
 
 
-def main() -> int:
+def run() -> int:
     for module, msg in STEPS:
         print(f"\n--- {msg} ---")
         code = subprocess.run(
@@ -26,4 +26,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())
