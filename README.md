@@ -231,18 +231,8 @@ python climate_analysis.py
 python -m src.data_collection   # → output/raw/raw_merged.csv
 python -m src.pipeline          # → output/processed/*.csv
 python -m src.visualize         # → output/figures/*.png
+Rscript R/visualize_r.R         # → output/figures/r_*.png
 ```
-
-### Optional extra visualizations (R / Julia / MATLAB)
-
-These scripts generate additional figures that use the same `output/processed/`
-CSV files produced by the Python pipeline.
-
-- R: `scripts/extra_visualizations/r/plot_response_curves_top_drivers.R`
-- Julia: `scripts/extra_visualizations/julia/plot_residuals_test_models.jl`
-- MATLAB: `scripts/extra_visualizations/matlab/plot_lagged_correlation_top_drivers.m`
-
-They write images into `output/figures/`.
 
 ---
 

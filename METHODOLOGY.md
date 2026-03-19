@@ -48,4 +48,27 @@ This document outlines the pipeline and shows the main result figures produced b
 
 ---
 
-To regenerate the figures, run `python -m src.visualize` from the project root (after running the pipeline).
+### 5. Additional diagnostics (R)
+
+![Correlation of engineered features with temperature anomaly](output/figures/r_feature_corr_top15.png)
+
+**Figure 6.** Pearson correlation between engineered features and temperature anomaly (top 15 by absolute correlation). This helps summarize which variables move together with the target in the integrated dataset.
+
+---
+
+![Residuals by model on the test set](output/figures/r_residuals_by_model.png)
+
+**Figure 7.** Residual (actual − predicted) distributions for each regression model on the test set. This highlights whether models systematically over- or under-predict.
+
+---
+
+![Predicted vs actual temperature anomaly (R)](output/figures/r_predicted_vs_actual.png)
+
+**Figure 8.** Predicted vs actual temperature anomaly on the test set for each model, with a 1:1 reference line. Points close to the line indicate stronger predictive accuracy.
+
+---
+
+To regenerate the figures, run:
+
+1. `python -m src.visualize` (after running the pipeline) for the main Python plots.
+2. `Rscript R/visualize_r.R` for the R diagnostics figures.
