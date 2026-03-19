@@ -68,7 +68,18 @@ This document outlines the pipeline and shows the main result figures produced b
 
 ---
 
+![Binned response curves for top drivers](output/figures/extra_r_response_curves_top_drivers.png)
+
+**Figure 9.** Binned response curves for the top-ranked driver features (selected by permutation importance) versus temperature anomaly. The curves summarize how the average temperature anomaly changes across the driver’s value range, and the shaded band indicates uncertainty (standard error) around each bin.
+
+---
+
 To regenerate the figures, run:
 
 1. `python -m src.visualize` (after running the pipeline) for the main Python plots.
 2. `Rscript R/visualize_r.R` for the R diagnostics figures.
+3. `Rscript scripts/extra_visualizations/r/plot_response_curves_top_drivers.R` for the additional binned response curves (Figure 9).
+
+Optional multi-language scripts:
+- Julia: `julia scripts/extra_visualizations/julia/plot_residuals_test_models.jl` (writes `output/figures/extra_julia_test_residuals.png`)
+- MATLAB: run `scripts/extra_visualizations/matlab/plot_lagged_correlation_top_drivers.m` in MATLAB (writes `output/figures/extra_matlab_lagged_corr_top_drivers.png`)
