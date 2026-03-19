@@ -103,20 +103,70 @@ def plot_scatter_top_features(df, imp_df):
 
 def plot_predictions(pred_df):
     pred_cols = [c for c in pred_df.columns if c.startswith("pred_")]
-    model_names = [c.replace("pred_", "").replace("_", " ").title() for c in pred_cols]
-    fig, ax = plt.subplots(figsize=(14, 5))
-    ax.plot(pred_df["date"], pred_df["temp_anomaly_C"], color="black", linewidth=1.2, alpha=0.6, label="Actual")
-    for col, name, color in zip(pred_cols, model_names, COLORS):
-        ax.plot(pred_df["date"], pred_df[col], linewidth=0.9, alpha=0.7, color=color, label=name)
+    # Keep a stable, reader-friendly order for legend entries
+    col_order = [
+        "pred_linear_regression",
+        "pred_ridge_regression",
+        "pred_random_forest",
+        "pred_gradient_boosting",
+    ]
+    col_order = [c for c in col_order if c in pred_cols]
+
+    # Compute test-set R² for each model (used in legend only)
+    test_df = pred_df[pred_df["split"] == "test"].copy()
+    y_true = test_df["temp_anomaly_C"].to_numpy()
+    y_mean = y_true.mean() if len(y_true) else 0.0
+    ss_tot = ((y_true - y_mean) ** 2).sum()
+
+    def r2(y_pred) -> float:
+        if len(y_true) == 0 or ss_tot == 0:
+            return float("nan")
+        ss_res = ((y_true - y_pred) ** 2).sum()
+        return 1.0 - ss_res / ss_tot
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    ax.plot(
+        pred_df["date"],
+        pred_df["temp_anomaly_C"],
+        color="black",
+        linewidth=1.3,
+        alpha=0.75,
+        label="Actual",
+        zorder=3,
+    )
+
+    # Light styling: remove heavy grids and reduce visual clutter
+    ax.grid(False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+    for i, col in enumerate(col_order):
+        # Convert column name to a readable model label
+        label = col.replace("pred_", "").replace("_", " ").title()
+        r2_score = r2(test_df[col].to_numpy())
+        ax.plot(
+            pred_df["date"],
+            pred_df[col],
+            linewidth=1.1,
+            alpha=0.85,
+            color=COLORS[i],
+            label=f"{label} (R²={r2_score:.2f})",
+            zorder=2,
+        )
+
     test_start = pred_df.loc[pred_df["split"] == "test", "date"].iloc[0]
-    ax.axvline(test_start, linestyle="--", color="grey", linewidth=1)  # mark train/test split
-    ax.text(test_start, ax.get_ylim()[1], "  ← Test set", fontsize=9, va="top", color="grey")
+    ax.axvline(test_start, linestyle="--", color="grey", linewidth=1, label="_nolegend_")
+
     ax.set_xlabel("Date")
     ax.set_ylabel("Temperature Anomaly (°C)")
-    ax.set_title("Model Predictions vs Actual Temperature Anomaly", fontsize=14, fontweight="bold")
-    ax.legend(fontsize=9, loc="upper left")
+    ax.set_title(
+        "Model Predictions vs Actual Temperature Anomaly",
+        fontsize=14,
+        fontweight="bold",
+    )
+    ax.legend(fontsize=9, loc="upper left", frameon=True)
     fig.tight_layout()
-    fig.savefig(RESULTS / "model_predictions.png", dpi=200, bbox_inches="tight")
+    fig.savefig(RESULTS / "model_predictions.png", dpi=220, bbox_inches="tight")
     plt.close(fig)
     print("  ✓ model_predictions.png")
 

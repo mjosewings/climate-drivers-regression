@@ -93,21 +93,23 @@ all_stats <- all_stats %>%
   mutate(driver = factor(driver, levels = top_drivers))
 
 p <- ggplot(all_stats, aes(x = x_mean, y = y_mean)) +
-  geom_ribbon(aes(ymin = y_mean - y_se, ymax = y_mean + y_se), alpha = 0.20, fill = "#1f77b4") +
-  geom_line(color = "#1f77b4", linewidth = 1) +
-  geom_point(color = "#1f77b4", size = 1.5, alpha = 0.8) +
+  geom_ribbon(aes(ymin = y_mean - y_se, ymax = y_mean + y_se), alpha = 0.25, fill = "#1f77b4") +
+  geom_line(color = "#1f77b4", linewidth = 1.2) +
+  geom_point(color = "#1f77b4", size = 1.8, alpha = 0.85) +
   facet_wrap(~ driver, ncol = 1, scales = "free_x") +
   labs(
     title = "Binned response curves for top-ranked drivers",
     x = "Driver value (binned by quantiles)",
-    y = "Mean temperature anomaly (deg C)"
+    y = "Mean temperature anomaly (°C)"
   ) +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 13) +
   theme(
     strip.text = element_text(face = "bold"),
-    plot.title = element_text(face = "bold")
+    plot.title = element_text(face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
   )
 
-ggsave(output_png, p, width = 8, height = 10, dpi = 200)
+ggsave(output_png, p, width = 9, height = 11, dpi = 220)
 cat("Wrote:", output_png, "\n")
 
